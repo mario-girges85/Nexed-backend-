@@ -2,47 +2,75 @@ const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 
+const ACCESS_TOKEN_TTL = "15m";
+const REFRESH_TOKEN_TTL = "30d";
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict",
+  path: "/",
+};
+
+const createAccessToken = (user) =>
+  jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
+    expiresIn: ACCESS_TOKEN_TTL,
+    algorithm: "HS256",
+  });
+
+const clearRefreshCookie = (res) => {
+  res.clearCookie("refresh_token", REFRESH_COOKIE_OPTIONS);
+};
+
 module.exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
+    const { email, password } = req.body || {};
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      !password
+    ) {
       return res.status(400).json({ message: "All fields are required" });
     }
-    const user = await User.findOne({ where: { email } });
+    if (!process.env.JWT_SECRET || !process.env.REFRESH_TOKEN_SECRET) {
+      return res
+        .status(500)
+        .json({ message: "Authentication is not configured" });
+    }
+    const user = await User.findOne({ where: { email: email.trim() } });
     if (!user) {
       return res.status(400).json({ message: "invalid email or password" });
     }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid =
+      user.password && (await bcrypt.compare(password, user.password));
     if (!isPasswordValid) {
       return res.status(400).json({ message: "invalid email or password" });
     }
-    const userData = user.toJSON();
-    delete userData.password;
-    const access_token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
+
+    const access_token = createAccessToken(user);
     const refresh_token = jwt.sign(
       { id: user.id },
       process.env.REFRESH_TOKEN_SECRET,
       {
-        expiresIn: "30d",
+        expiresIn: REFRESH_TOKEN_TTL,
+        algorithm: "HS256",
       },
     );
     res.cookie("refresh_token", refresh_token, {
-      httpOnly: true,
-      // secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      ...REFRESH_COOKIE_OPTIONS,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30d
     });
     return res
       .status(200)
-      .json({ message: "Login successful", access_token, userData });
+      .set("Cache-Control", "no-store")
+      .json({ message: "Login successful", access_token });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Internal server error", error: error.message });
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
+// in login :
+//return refresh token contains id
+//return access token contains data
 
 module.exports.refresh = async (req, res) => {
   const refreshToken =
@@ -64,32 +92,31 @@ module.exports.refresh = async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, {
+      algorithms: ["HS256"],
+    });
+    if (!decoded || typeof decoded !== "object" || decoded.id == null) {
+      clearRefreshCookie(res);
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
     const user = await User.findByPk(decoded.id);
     if (!user) {
-      res.clearCookie("refresh_token", {
-        httpOnly: true,
-        // secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-      });
+      clearRefreshCookie(res);
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    const access_token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
+    const access_token = createAccessToken(user);
 
-    return res.status(200).json({ message: "Token refreshed", access_token });
+    return res
+      .status(200)
+      .set("Cache-Control", "no-store")
+      .json({ message: "Token refreshed", access_token });
   } catch (error) {
     if (
       error.name === "TokenExpiredError" ||
       error.name === "JsonWebTokenError"
     ) {
-      res.clearCookie("refresh_token", {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "strict",
-      });
+      clearRefreshCookie(res);
       return res
         .status(401)
         .json({ message: "Invalid or expired refresh token" });
@@ -97,3 +124,51 @@ module.exports.refresh = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+module.exports.verifytoken = async (req, res, next) => {
+  const authHeader = req.get("authorization");
+  if (typeof authHeader !== "string" || !/^Bearer\s+/i.test(authHeader)) {
+    return res.status(401).json({ message: "Access token is required" });
+  }
+
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) {
+    return res.status(401).json({ message: "Access token is required" });
+  }
+
+  if (!process.env.JWT_SECRET) {
+    return res
+      .status(500)
+      .json({ message: "Authentication is not configured" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ["HS256"],
+    });
+    if (!decoded || typeof decoded !== "object" || decoded.id == null) {
+      return res.status(401).json({ message: "Invalid access token" });
+    }
+    const user = await User.findByPk(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: "Invalid access token" });
+    }
+
+    req.id = user.id;
+    req.role = user.role;
+    return next();
+  } catch (error) {
+    if (
+      error.name === "TokenExpiredError" ||
+      error.name === "JsonWebTokenError"
+    ) {
+      return res
+        .status(401)
+        .json({ message: "Invalid or expired access token" });
+    }
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+// in verify token : |
+// the access token must be sent in headers (authHeader)
+// if token valid it send the user id and role in the req to next endpoint

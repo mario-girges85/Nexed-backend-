@@ -30,3 +30,11 @@ module.exports.get_all_users = async (req, res) => {
   const userData = users.map((user) => user.toJSON());
   res.status(200).json({ message: "Users fetched successfully", userData });
 };
+
+module.exports.me = async (req, res) => {
+  req.body.id = id;
+  const myuser = User.findOne({ where: { id } });
+  res
+    .status(201)
+    .send({ success: true, message: "got my data successfully", myuser });
+};
