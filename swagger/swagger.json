@@ -1,77 +1,250 @@
 {
-  "openapi": "3.0.0",
+  "openapi": "3.0.3",
   "info": {
-    "title": "Deacons School API",
+    "title": "Nexed API",
     "version": "1.0.0",
-    "description": "API Documentation for Deacons School Management System"
+    "description": "API documentation for the Nexed backend. The route paths below are mounted directly by the Express application."
   },
-
   "servers": [
     {
       "url": "http://localhost:3000",
-      "description": "Development Server"
-    },
-    {
-      "url": "https://your-backend.vercel.app",
-      "description": "Production Server"
+      "description": "Local development (replace the port if PORT is configured differently)"
     }
   ],
-
+  "tags": [
+    { "name": "Health", "description": "Service health check" },
+    { "name": "Users", "description": "User registration and lookup" },
+    { "name": "Authentication", "description": "Login and token refresh" }
+  ],
+  "paths": {
+    "/test": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check that the server is running",
+        "responses": {
+          "200": {
+            "description": "The server is running",
+            "content": {
+              "text/html": {
+                "schema": { "type": "string", "example": "server is running" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/user/signup": {
+      "post": {
+        "tags": ["Users"],
+        "summary": "Register a user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SignupRequest" },
+              "example": { "name": "Alex Doe", "email": "alex@example.com", "password": "example-password", "role": "student" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User registered successfully",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserMutationResponse" } } }
+          },
+          "400": {
+            "description": "Required fields are missing or the email is already registered",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" }, "examples": {
+              "missingFields": { "value": { "message": "All fields are required" } },
+              "duplicateEmail": { "value": { "message": "User already exists" } }
+            } } }
+          }
+        }
+      }
+    },
+    "/user/all-users": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Fetch all users",
+        "description": "Returns every user record. The current implementation serializes all model fields, including the stored password hash.",
+        "responses": {
+          "200": {
+            "description": "Users fetched successfully",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UsersResponse" } } }
+          }
+        }
+      }
+    },
+    "/user/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Log in and receive an access token",
+        "description": "Returns a short-lived access token in the response body and sets a 30-day httpOnly refresh_token cookie.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful; refresh token is set as a cookie",
+            "headers": { "Set-Cookie": { "description": "httpOnly refresh_token cookie", "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenResponse" } } }
+          },
+          "400": {
+            "description": "Missing fields or invalid credentials",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" }, "examples": {
+              "missingFields": { "value": { "message": "All fields are required" } },
+              "invalidCredentials": { "value": { "message": "invalid email or password" } }
+            } } }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/user/refresh": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Refresh the access token",
+        "description": "Reads the refresh_token cookie and returns a new access token. The refresh cookie is not rotated.",
+        "security": [{ "RefreshCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "A new access token was issued",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenResponse" } } }
+          },
+          "401": {
+            "description": "Refresh cookie is missing, invalid, expired, or refers to a missing user",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" }, "examples": {
+              "missing": { "value": { "message": "Refresh token is required" } },
+              "invalid": { "value": { "message": "Invalid or expired refresh token" } }
+            } } }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/user/me": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get the authenticated user",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "User fetched successfully",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserMutationResponse" } } }
+          },
+          "401": {
+            "description": "Access token is missing, invalid, or expired",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" }, "examples": {
+              "missing": { "value": { "message": "Access token is required" } },
+              "invalid": { "value": { "message": "Invalid or expired access token" } }
+            } } }
+          },
+          "404": {
+            "description": "Authenticated user no longer exists",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } } }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    }
+  },
   "components": {
     "securitySchemes": {
       "BearerAuth": {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Enter your JWT token"
+        "description": "Supply the access token returned by /user/login or /user/refresh."
+      },
+      "RefreshCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "refresh_token",
+        "description": "Set by /user/login as an httpOnly cookie."
       }
     },
-
     "schemas": {
+      "SignupRequest": {
+        "type": "object",
+        "required": ["name", "email", "password", "role"],
+        "properties": {
+          "name": { "type": "string", "example": "Alex Doe" },
+          "email": { "type": "string", "format": "email", "example": "alex@example.com" },
+          "password": { "type": "string", "format": "password", "example": "example-password" },
+          "role": { "$ref": "#/components/schemas/UserRole" }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": ["email", "password"],
         "properties": {
-          "email": {
-            "type": "string",
-            "example": "admin@gmail.com"
-          },
-          "password": {
-            "type": "string",
-            "example": "123456"
-          }
+          "email": { "type": "string", "format": "email", "example": "alex@example.com" },
+          "password": { "type": "string", "format": "password", "example": "example-password" }
         }
       },
-
-      "LoginResponse": {
+      "UserRole": {
+        "type": "string",
+        "enum": ["admin", "staff", "employee", "student"]
+      },
+      "User": {
         "type": "object",
+        "required": ["id", "name", "email", "role"],
         "properties": {
-          "token": {
-            "type": "string",
-            "example": "eyJhbGciOiJIUzI1NiIs..."
-          },
-          "message": {
-            "type": "string",
-            "example": "Login successful"
+          "id": { "type": "integer", "example": 1 },
+          "name": { "type": "string", "example": "Alex Doe" },
+          "email": { "type": "string", "format": "email", "example": "alex@example.com" },
+          "role": { "$ref": "#/components/schemas/UserRole" }
+        }
+      },
+      "UserWithPasswordHash": {
+        "allOf": [
+          { "$ref": "#/components/schemas/User" },
+          {
+            "type": "object",
+            "required": ["password"],
+            "properties": {
+              "password": { "type": "string", "description": "Stored bcrypt password hash returned by the current all-users implementation." }
+            }
           }
+        ]
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": ["message"],
+        "properties": { "message": { "type": "string" } }
+      },
+      "UserMutationResponse": {
+        "type": "object",
+        "required": ["message", "userData"],
+        "properties": {
+          "message": { "type": "string" },
+          "userData": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "UsersResponse": {
+        "type": "object",
+        "required": ["message", "userData"],
+        "properties": {
+          "message": { "type": "string" },
+          "userData": { "type": "array", "items": { "$ref": "#/components/schemas/UserWithPasswordHash" } }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "required": ["message", "access_token"],
+        "properties": {
+          "message": { "type": "string", "example": "Login successful" },
+          "access_token": { "type": "string", "description": "JWT access token; expires after 15 minutes." }
         }
       }
-    }
-  },
-
-  "paths": {
-    "/test": {
-      "get": {
-        "summary": "Test Endpoint",
-        "description": "Test if the server is running",
-        "tags": ["Test"],
-        "security": [],
-
-        "responses": {
-          "200": {
-            "description": "Test successful"
-          }
-        }
+    },
+    "responses": {
+      "ServerError": {
+        "description": "Internal server error or authentication is not configured",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" }, "examples": {
+          "internal": { "value": { "message": "Internal server error" } },
+          "configuration": { "value": { "message": "Authentication is not configured" } }
+        } } }
       }
     }
   }
