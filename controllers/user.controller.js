@@ -1,16 +1,15 @@
 const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const { single_user_signup_validator } = require("../validation/validation");
 module.exports.single_signup = async (req, res) => {
-  const { name, email, password, role } = req.body;
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-  const existingUser = await User.findOne({ where: { email } });
-  if (existingUser) {
-    return res.status(400).json({ message: "User already exists" });
+  const validation = await single_user_signup_validator(req.body);
+  if (!validation.success) {
+    return res.status(400).json({ message: validation.message });
   }
 
+  const { name, email, role } = validation.userData;
+  const { password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const user = await User.create({
