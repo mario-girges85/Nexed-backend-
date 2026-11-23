@@ -5,8 +5,7 @@ const swaggerDocument = require("./swagger/swagger.json");
 const testRoutes = require("./routes/test.route");
 const userRoutes = require("./routes/user.route");
 const initRoutes = require("./routes/initialization.route.js");
-const { readfile } = require("./util/excel.js");
-
+// const { readfile } = require("./util/excel.js");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

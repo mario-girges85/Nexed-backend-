@@ -6,7 +6,7 @@ module.exports.readfile = async (file) => {
     await workbook.xlsx.readFile(file);
 
     workbook.eachSheet((sheet, sheetid) => {
-      console.log(sheetid);
+      console.log(sheet.name);
     });
   } catch (err) {
     console.log(err);
