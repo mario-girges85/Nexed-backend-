@@ -14,7 +14,8 @@
   "tags": [
     { "name": "Health", "description": "Service health check" },
     { "name": "Users", "description": "User registration and lookup" },
-    { "name": "Authentication", "description": "Login and token refresh" }
+    { "name": "Authentication", "description": "Login and token refresh" },
+    { "name": "Initialization", "description": "Bulk user templates and imports" }
   ],
   "paths": {
     "/test": {
@@ -29,6 +30,68 @@
                 "schema": { "type": "string", "example": "server is running" }
               }
             }
+          }
+        }
+      }
+    },
+    "/init/bulkusersdownload": {
+      "get": {
+        "tags": ["Initialization"],
+        "summary": "Download the bulk user upload template",
+        "responses": {
+          "200": {
+            "description": "Excel template downloaded successfully",
+            "headers": {
+              "Content-Disposition": {
+                "description": "Attachment filename for the downloaded template",
+                "schema": { "type": "string", "example": "attachment; filename=users_template.xlsx" }
+              }
+            },
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": {
+            "description": "The template file was not found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } } }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/init/bulkusersupload": {
+      "post": {
+        "tags": ["Initialization"],
+        "summary": "Import users from an Excel template",
+        "description": "Upload the XLSX file downloaded from /init/bulkusersdownload. The report identifies every successfully created user and every invalid row by worksheet name and Excel row number.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["bulk_upload_template"],
+                "properties": {
+                  "bulk_upload_template": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "XLSX file that follows the bulk user template."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The upload was processed; inspect the report for per-row results",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkUserUploadReport" } } }
+          },
+          "400": {
+            "description": "No file was uploaded or the uploaded file could not be read",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MessageResponse" } } }
           }
         }
       }
@@ -212,6 +275,70 @@
         "type": "object",
         "required": ["message"],
         "properties": { "message": { "type": "string" } }
+      },
+      "BulkUserRow": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "Alex Doe" },
+          "email": { "type": "string", "format": "email", "example": "alex@example.com" },
+          "national_id": { "type": "string", "pattern": "^\\d{14}$", "example": "12345678901234" },
+          "phonenumber": { "type": "string", "pattern": "^01\\d{9}$", "example": "01234567890" },
+          "birth_day": { "type": "integer", "minimum": 1, "maximum": 31, "example": 15 },
+          "birth_month": { "type": "integer", "minimum": 1, "maximum": 12, "example": 8 },
+          "birth_year": { "type": "integer", "example": 2002 },
+          "address": { "type": "string", "example": "Cairo" },
+          "gender": { "type": "string", "example": "male" },
+          "role": { "$ref": "#/components/schemas/UserRole" },
+          "profil_image": { "type": "string", "nullable": true }
+        }
+      },
+      "BulkUserImportSuccess": {
+        "type": "object",
+        "required": ["sheet", "row", "user"],
+        "properties": {
+          "sheet": { "type": "string", "example": "users" },
+          "row": { "type": "integer", "example": 3 },
+          "user": {
+            "allOf": [
+              { "$ref": "#/components/schemas/BulkUserRow" },
+              { "type": "object", "properties": { "id": { "type": "integer", "example": 1 } } }
+            ]
+          }
+        }
+      },
+      "BulkUserImportProblem": {
+        "type": "object",
+        "required": ["sheet", "row", "user", "message"],
+        "properties": {
+          "sheet": { "type": "string", "example": "users" },
+          "row": { "type": "integer", "example": 4 },
+          "user": { "$ref": "#/components/schemas/BulkUserRow" },
+          "message": { "type": "string", "example": "Phone number must be 11 digits and start with 01" }
+        }
+      },
+      "BulkUserUploadReport": {
+        "type": "object",
+        "required": ["summary", "successfullyAddedUsers", "problematicRows"],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "required": ["sheetsProcessed", "totalRows", "successfullyAdded", "failedRows"],
+            "properties": {
+              "sheetsProcessed": { "type": "integer", "example": 1 },
+              "totalRows": { "type": "integer", "example": 2 },
+              "successfullyAdded": { "type": "integer", "example": 1 },
+              "failedRows": { "type": "integer", "example": 1 }
+            }
+          },
+          "successfullyAddedUsers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BulkUserImportSuccess" }
+          },
+          "problematicRows": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BulkUserImportProblem" }
+          }
+        }
       },
       "UserMutationResponse": {
         "type": "object",
