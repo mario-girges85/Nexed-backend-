@@ -18,7 +18,9 @@ const upload = multer({ storage });
 router.post(
   "/bulkusersupload",
   upload.single("bulk_upload_template"),
-  initController.bulk_users_file,
+  initController.bulk_users_file_upload,
 );
+
+router.get("/bulkusersdownload", initController.bulk_users_file_download);
 
 module.exports = router;

@@ -1,4 +1,5 @@
 const excel = require("../util/excel");
+const path = require("path");
 const { create_user } = require("./user.controller");
 
 function withoutPassword(user) {
@@ -16,7 +17,7 @@ function importErrorMessage(error) {
   return error.message || "Unable to add this user";
 }
 
-module.exports.bulk_users_file = async (req, res) => {
+module.exports.bulk_users_file_upload = async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ message: "Please upload an Excel file" });
   }
@@ -76,4 +77,27 @@ module.exports.bulk_users_file = async (req, res) => {
       error: error.message,
     });
   }
+};
+
+module.exports.bulk_users_file_download = (req, res, next) => {
+  const templatePath = path.join(
+    __dirname,
+    "..",
+    "assets",
+    "users_template.xlsx",
+  );
+
+  res.download(templatePath, "users_template.xlsx", (error) => {
+    if (!error) {
+      return;
+    }
+
+    if (res.headersSent) {
+      return next(error);
+    }
+
+    return res.status(error.code === "ENOENT" ? 404 : 500).json({
+      message: "Unable to download the users template",
+    });
+  });
 };
