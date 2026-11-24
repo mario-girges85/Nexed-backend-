@@ -2,9 +2,10 @@ const express = require("express");
 const cookieParser = require("cookie-parser");
 const swaggerUi = require("swagger-ui-express");
 const swaggerDocument = require("./swagger/swagger.json");
-
 const testRoutes = require("./routes/test.route");
 const userRoutes = require("./routes/user.route");
+const initRoutes = require("./routes/initialization.route.js");
+// const { readfile } = require("./util/excel.js");
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -24,4 +25,10 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.use("/test", testRoutes);
 app.use("/user", userRoutes);
+app.use("/init", initRoutes);
+
+//test reading excel file
+// const file = "./testfile.xlsx";
+// readfile(file);
+
 module.exports = app;
