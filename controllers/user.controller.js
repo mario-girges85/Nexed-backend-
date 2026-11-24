@@ -2,23 +2,29 @@ const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { single_user_signup_validator } = require("../validation/validation");
-module.exports.single_signup = async (req, res) => {
-  const validation = await single_user_signup_validator(req.body);
+
+module.exports.create_user = async (userData) => {
+  const validation = await single_user_signup_validator(userData);
   if (!validation.success) {
-    return res.status(400).json({ message: validation.message });
+    return validation;
   }
 
-  const { name, email, role } = validation.userData;
-  const { password } = req.body;
-  const hashedPassword = await bcrypt.hash(password, 10);
-
+  const hashedPassword = await bcrypt.hash(String(userData.password), 10);
   const user = await User.create({
-    name,
-    email,
+    ...validation.userData,
     password: hashedPassword,
-    role,
   });
-  const userData = user.toJSON();
+
+  return { success: true, user };
+};
+
+module.exports.single_signup = async (req, res) => {
+  const result = await create_user(req.body);
+  if (!result.success) {
+    return res.status(400).json({ message: result.message });
+  }
+
+  const userData = result.user.toJSON();
   delete userData.password;
 
   res.status(201).json({ message: "User registered successfully", userData });
