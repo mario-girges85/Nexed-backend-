@@ -1,5 +1,19 @@
 const ExcelJS = require("exceljs");
 
+const USER_COLUMNS = {
+  1: "name",
+  2: "email",
+  3: "password",
+  4: "national_id",
+  5: "phonenumber",
+  6: "birth_day",
+  7: "birth_month",
+  8: "birth_year",
+  9: "address",
+  10: "gender",
+  11: "role",
+};
+
 // ExcelJS can represent dates, formula results, and rich text as objects.
 // Convert those values into JSON-safe primitives before returning API data.
 function cellValue(value) {
@@ -16,15 +30,27 @@ function cellValue(value) {
   return value;
 }
 
+function userCellValue(field, cell) {
+  const value = cellValue(cell.value);
+
+  // IDs and phone numbers are stored as strings so that leading zeroes are kept.
+  if (field === "national_id" || field === "phonenumber") {
+    return value == null ? null : cell.text.trim();
+  }
+
+  return value;
+}
+
 /**
  * Parses an Excel file uploaded through Multer's memory storage.
  *
- * The first row of each worksheet becomes the property names for its records.
- * The returned object is keyed by worksheet name, so callers can access both
- * the sheet names and their row data without reading the workbook again.
+ * The upload template has two header rows: row 1 contains the main columns
+ * and the merged `birth_date` label, while row 2 contains day, month, and year.
+ * User records therefore begin at row 3. Each record uses the field names from
+ * the User model, including `birth_day`, `birth_month`, and `birth_year`.
  *
  * @param {Buffer} filebuffer The uploaded file contents from `req.file.buffer`.
- * @returns {Promise<Record<string, Record<string, unknown>[]>>} Rows grouped by worksheet name.
+ * @returns {Promise<Record<string, Array<{ rowNumber: number, user: Record<string, unknown> }>>>} User records grouped by worksheet name.
  */
 module.exports.readfile = async (filebuffer) => {
   const workbook = new ExcelJS.Workbook();
@@ -33,31 +59,29 @@ module.exports.readfile = async (filebuffer) => {
 
   const sheets = {};
   workbook.eachSheet((worksheet) => {
-    // Column positions are one-based in ExcelJS, so this array is intentionally
-    // indexed by the `colNumber` value received from eachCell.
-    const headers = [];
-    const rows = [];
+    const users = [];
 
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) {
-        // Use the first populated row as the header row for this worksheet.
-        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-          headers[colNumber] = cellValue(cell.value);
-        });
+      if (rowNumber <= 2) {
         return;
       }
 
-      const record = {};
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        // Empty header cells still get a stable property name in the response.
-        const key = headers[colNumber] ?? `column${colNumber}`;
-        record[key] = cellValue(cell.value);
+      const user = {};
+      let hasValues = false;
+
+      Object.entries(USER_COLUMNS).forEach(([column, field]) => {
+        const value = userCellValue(field, row.getCell(Number(column)));
+        user[field] = value;
+        hasValues ||= value != null && value !== "";
       });
-      rows.push(record);
+
+      // Ignore rows that Excel considers non-empty but contain no user data.
+      if (hasValues) {
+        users.push({ rowNumber, user });
+      }
     });
 
-    // The key is also the worksheet's name, e.g. `sheets.Users`.
-    sheets[worksheet.name] = rows;
+    sheets[worksheet.name] = users;
   });
 
   return sheets;
