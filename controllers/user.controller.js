@@ -3,7 +3,7 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { single_user_signup_validator } = require("../validation/validation");
 
-module.exports.create_user = async (userData) => {
+async function create_user(userData) {
   const validation = await single_user_signup_validator(userData);
   if (!validation.success) {
     return validation;
@@ -16,7 +16,9 @@ module.exports.create_user = async (userData) => {
   });
 
   return { success: true, user };
-};
+}
+
+module.exports.create_user = create_user;
 
 module.exports.single_signup = async (req, res) => {
   const result = await create_user(req.body);
